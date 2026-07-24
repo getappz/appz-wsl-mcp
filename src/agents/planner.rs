@@ -14,6 +14,7 @@ pub struct AgentTaskResult {
 }
 
 pub struct TaskPlanner {
+    #[allow(dead_code)]
     wsl: Arc<WslService>,
 }
 
