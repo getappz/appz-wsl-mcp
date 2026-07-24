@@ -1,18 +1,46 @@
 use crate::config::AppConfig;
 use regex::Regex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct ExecService {
     cfg: Arc<AppConfig>,
+    pending: Arc<Mutex<HashMap<String, PendingCommand>>>,
+}
+
+pub struct PendingCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub distro: String,
+    pub command: String,
 }
 
 impl ExecService {
     pub fn new(cfg: Arc<AppConfig>) -> Self {
-        Self { cfg }
+        Self { cfg, pending: Arc::new(Mutex::new(HashMap::new())) }
+    }
+
+    pub async fn register_pending(&self, distro: &str, command: &str, program: &str, args: Vec<String>) -> String {
+        let id = Uuid::new_v4().to_string();
+        let mut store = self.pending.lock().await;
+        store.insert(id.clone(), PendingCommand {
+            program: program.to_string(),
+            args,
+            distro: distro.to_string(),
+            command: command.to_string(),
+        });
+        info!("Pending command registered: {id} → {command}");
+        id
+    }
+
+    pub async fn resolve_pending(&self, confirmation_id: &str) -> Option<PendingCommand> {
+        let mut store = self.pending.lock().await;
+        store.remove(confirmation_id)
     }
 
     pub fn check_policy(&self, command: &str) -> PolicyResult {

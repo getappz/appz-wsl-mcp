@@ -44,6 +44,7 @@ pub struct ResourcePrediction {
 }
 
 pub struct IntelligenceService {
+    #[allow(dead_code)]
     wsl: Arc<WslService>,
 }
 

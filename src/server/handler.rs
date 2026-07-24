@@ -3,6 +3,8 @@ use crate::agents::planner::TaskPlanner;
 use crate::config::AppConfig;
 use crate::read_tools;
 use crate::services::exec::ExecService;
+use crate::services::file_ops::FileOpsService;
+use crate::services::terminal::TerminalService;
 use crate::services::wsl::WslService;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -64,13 +66,22 @@ fn tools_list() -> Value {
         {"name": "wsl_install_distro", "description": "Install a new WSL distribution", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
         {"name": "wsl_start_distro", "description": "Start a WSL distribution", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
         {"name": "wsl_stop_distro", "description": "Stop a WSL distribution", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
-        {"name": "wsl_execute_command", "description": "Execute a command in a WSL distribution", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "command": {"type": "string"}}}},
+        {"name": "wsl_execute_command", "description": "Execute a command in a WSL distribution. Returns confirmation_id if command requires approval.", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "command": {"type": "string"}}}},
+        {"name": "wsl_confirm_command", "description": "Confirm execution of a dangerous command flagged by policy", "inputSchema": {"type": "object", "properties": {"confirmation_id": {"type": "string"}, "confirm": {"type": "boolean"}}}},
         {"name": "wsl_configure", "description": "Configure WSL settings (.wslconfig)", "inputSchema": {"type": "object", "properties": {"settings": {"type": "object"}}}},
         {"name": "wsl_export_distro", "description": "Export a WSL distribution to tar", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "output_path": {"type": "string"}}}},
         {"name": "wsl_import_distro", "description": "Import a WSL distribution from tar", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "tar_path": {"type": "string"}, "install_path": {"type": "string"}}}},
         {"name": "wsl_copy_from_wsl", "description": "Copy files from WSL to Windows", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "wsl_path": {"type": "string"}, "windows_path": {"type": "string"}}}},
         {"name": "wsl_copy_to_wsl", "description": "Copy files from Windows to WSL", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "windows_path": {"type": "string"}, "wsl_path": {"type": "string"}}}},
         {"name": "wsl_agent_task", "description": "Use AI agent to perform complex WSL tasks", "inputSchema": {"type": "object", "properties": {"task": {"type": "string"}, "context": {"type": "string"}}}},
+        {"name": "wsl_read_file", "description": "Read file contents from inside WSL", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+        {"name": "wsl_write_file", "description": "Write content to a file inside WSL", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}}},
+        {"name": "wsl_edit_file", "description": "Edit file with pattern matching and diff preview", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "edits": {"type": "array", "items": {"type": "object", "properties": {"old_text": {"type": "string"}, "new_text": {"type": "string"}}}}, "dry_run": {"type": "boolean"}}}},
+        {"name": "wsl_search_files", "description": "Recursively search files by name pattern using find", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "pattern": {"type": "string"}, "exclude_patterns": {"type": "array", "items": {"type": "string"}}}}},
+        {"name": "wsl_search_in_files", "description": "Search for text within files using grep", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}, "pattern": {"type": "string"}, "is_regex": {"type": "boolean"}, "case_insensitive": {"type": "boolean"}, "include_patterns": {"type": "array", "items": {"type": "string"}}, "exclude_patterns": {"type": "array", "items": {"type": "string"}}, "max_results": {"type": "number"}, "context_lines": {"type": "number"}}}},
+        {"name": "wsl_list_directory", "description": "List directory contents with file/dir prefixes", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+        {"name": "wsl_directory_tree", "description": "Recursive directory tree JSON", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+        {"name": "wsl_get_file_info", "description": "Get file metadata from WSL", "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}}},
         {"name": "read:get_system_info", "description": "Get WSL system information (uname -a)"},
         {"name": "read:get_os_release", "description": "Get OS distribution info from /etc/os-release"},
         {"name": "read:list_procs", "description": "List running processes", "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}},
@@ -78,9 +89,21 @@ fn tools_list() -> Value {
         {"name": "read:get_package_managers", "description": "Detect available package managers"},
         {"name": "read:get_default_shell", "description": "Get current user's default shell"},
         {"name": "read:get_env", "description": "Get environment variables", "inputSchema": {"type": "object", "properties": {"filter": {"type": "string"}}}},
+        {"name": "read:get_mounts", "description": "List mounted filesystems from /proc/mounts"},
+        {"name": "read:get_wsl_config", "description": "Read /etc/wsl.conf contents"},
+        {"name": "read:get_shells", "description": "List available shells from /etc/shells"},
+        {"name": "wsl_shutdown", "description": "Shutdown all WSL distributions"},
         {"name": "wsl_get_recommendations", "description": "Get AI-powered optimization recommendations", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
         {"name": "wsl_analyze_performance", "description": "Analyze WSL performance with ML insights", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
-        {"name": "wsl_predict_resources", "description": "Predict resource requirements for a workload", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "workload": {"type": "string"}}}}
+        {"name": "wsl_predict_resources", "description": "Predict resource requirements for a workload", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "workload": {"type": "string"}}}},
+        {"name": "terminal_create_session", "description": "Create a persistent tmux terminal session inside a WSL distro", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "name": {"type": "string"}}}},
+        {"name": "terminal_send_keys", "description": "Send text input to a tmux session (writes keys, no Enter)", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}, "input": {"type": "string"}}}},
+        {"name": "terminal_send_enter", "description": "Send Enter key to a tmux session", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}}}},
+        {"name": "terminal_read_output", "description": "Read recent output from a tmux session pane", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}, "lines": {"type": "number"}}}},
+        {"name": "terminal_list_sessions", "description": "List active tmux sessions on a WSL distro", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}}}},
+        {"name": "terminal_kill_session", "description": "Kill a tmux terminal session", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}}}},
+        {"name": "terminal_wait_for_output", "description": "Poll a tmux session until a marker string appears in output", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}, "marker": {"type": "string"}, "max_polls": {"type": "number"}, "poll_ms": {"type": "number"}}}},
+        {"name": "terminal_clear_scrollback", "description": "Clear scrollback history for a tmux session", "inputSchema": {"type": "object", "properties": {"distro": {"type": "string"}, "session": {"type": "string"}}}}
     ])
 }
 
@@ -113,7 +136,27 @@ async fn tools_call(state: Arc<AppConfig>, tool: &str, args: &serde_json::Map<St
                 crate::services::exec::PolicyResult::Denied(reason) => {
                     jsonrpc_error(-32000, format!("Command denied by policy: {reason}"))
                 }
+                crate::services::exec::PolicyResult::Confirm => {
+                    let first_word = c.split_whitespace().next().unwrap_or(&c);
+                    let conf_id = exec.register_pending(&d, &c, first_word, vec![]).await;
+                    json!({
+                        "status": "requires_confirmation",
+                        "confirmation_id": conf_id,
+                        "message": format!("Command '{}' requires confirmation. Use wsl_confirm_command with this confirmation_id.", c)
+                    })
+                }
                 _ => json!(wsl.execute_command(&d, &c).await),
+            }
+        }
+        "wsl_confirm_command" => {
+            let conf_id = str_arg(args, "confirmation_id");
+            let confirm = args.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
+            if !confirm {
+                json!({"success": false, "message": "Command not confirmed"})
+            } else if let Some(pc) = exec.resolve_pending(&conf_id).await {
+                json!(wsl.execute_command(&pc.distro, &pc.command).await)
+            } else {
+                jsonrpc_error(-32000, "Invalid or expired confirmation_id".into())
             }
         }
         "wsl_configure" => {
@@ -151,6 +194,62 @@ async fn tools_call(state: Arc<AppConfig>, tool: &str, args: &serde_json::Map<St
             let w = str_arg(args, "wsl_path");
             json!(wsl.copy_to_wsl(&d, &p, &w).await)
         }
+        "wsl_read_file" => {
+            let p = str_arg(args, "path");
+            json!(FileOpsService::read_file(&p).await)
+        }
+        "wsl_write_file" => {
+            let p = str_arg(args, "path");
+            let c = str_arg(args, "content");
+            let (msg, ok) = FileOpsService::write_file(&p, &c).await;
+            json!({"success": ok, "message": msg})
+        }
+        "wsl_edit_file" => {
+            let p = str_arg(args, "path");
+            let edits_raw = args.get("edits").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let dry_run = args.get("dry_run").and_then(|v| v.as_bool()).unwrap_or(false);
+            let edits: Vec<crate::services::file_ops::EditOp> = edits_raw.iter().filter_map(|e| {
+                let old = e.get("old_text").and_then(|v| v.as_str())?;
+                let new = e.get("new_text").and_then(|v| v.as_str())?;
+                Some(crate::services::file_ops::EditOp { old_text: old.into(), new_text: new.into() })
+            }).collect();
+            json!(FileOpsService::edit_file(&p, &edits, dry_run).await)
+        }
+        "wsl_search_files" => {
+            let p = str_arg(args, "path");
+            let pat = str_arg(args, "pattern");
+            let excl: Vec<String> = args.get("exclude_patterns").and_then(|v| v.as_array()).map(|a| {
+                a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+            }).unwrap_or_default();
+            json!(FileOpsService::search_files(&p, &pat, &excl).await)
+        }
+        "wsl_search_in_files" => {
+            let p = str_arg(args, "path");
+            let pat = str_arg(args, "pattern");
+            let is_regex = args.get("is_regex").and_then(|v| v.as_bool()).unwrap_or(false);
+            let ci = args.get("case_insensitive").and_then(|v| v.as_bool()).unwrap_or(false);
+            let incl: Vec<String> = args.get("include_patterns").and_then(|v| v.as_array()).map(|a| {
+                a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+            }).unwrap_or_default();
+            let excl: Vec<String> = args.get("exclude_patterns").and_then(|v| v.as_array()).map(|a| {
+                a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+            }).unwrap_or_default();
+            let max = args.get("max_results").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+            let ctx = args.get("context_lines").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            json!(FileOpsService::search_in_files(&p, &pat, is_regex, ci, &incl, &excl, max, ctx).await)
+        }
+        "wsl_list_directory" => {
+            let p = str_arg(args, "path");
+            json!(FileOpsService::list_directory(&p).await)
+        }
+        "wsl_directory_tree" => {
+            let p = str_arg(args, "path");
+            json!(FileOpsService::directory_tree(&p).await)
+        }
+        "wsl_get_file_info" => {
+            let p = str_arg(args, "path");
+            json!(FileOpsService::get_file_info(&p).await)
+        }
         "wsl_agent_task" => {
             let task = str_arg(args, "task");
             let ctx = args.get("context").and_then(|v| v.as_str());
@@ -173,6 +272,10 @@ async fn tools_call(state: Arc<AppConfig>, tool: &str, args: &serde_json::Map<St
             let filter = args.get("filter").and_then(|v| v.as_str());
             json!(read_tools::get_env(filter).await)
         }
+        "read:get_mounts" => json!(read_tools::get_mounts().await),
+        "read:get_wsl_config" => json!(read_tools::get_wsl_config().await),
+        "read:get_shells" => json!(read_tools::get_shells().await),
+        "wsl_shutdown" => json!(wsl.shutdown().await),
         "wsl_get_recommendations" => {
             let d = args.get("distro").and_then(|v| v.as_str());
             json!(intelligence.get_recommendations(d).await)
@@ -185,6 +288,58 @@ async fn tools_call(state: Arc<AppConfig>, tool: &str, args: &serde_json::Map<St
             let d = str_arg(args, "distro");
             let w = str_arg(args, "workload");
             json!(intelligence.predict_resources(&d, &w).await)
+        }
+        "terminal_create_session" => {
+            let d = str_arg(args, "distro");
+            let n = str_arg(args, "name");
+            let term = TerminalService::new();
+            json!(term.create_session(&d, &n).await)
+        }
+        "terminal_send_keys" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let i = str_arg(args, "input");
+            let term = TerminalService::new();
+            json!(term.send_keys(&d, &s, &i).await)
+        }
+        "terminal_send_enter" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let term = TerminalService::new();
+            json!(term.send_enter(&d, &s).await)
+        }
+        "terminal_read_output" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let lines = args.get("lines").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let term = TerminalService::new();
+            json!(term.read_output(&d, &s, lines).await)
+        }
+        "terminal_list_sessions" => {
+            let d = str_arg(args, "distro");
+            let term = TerminalService::new();
+            json!(term.list_sessions(&d).await)
+        }
+        "terminal_kill_session" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let term = TerminalService::new();
+            json!(term.kill_session(&d, &s).await)
+        }
+        "terminal_wait_for_output" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let marker = str_arg(args, "marker");
+            let max_polls = args.get("max_polls").and_then(|v| v.as_u64()).unwrap_or(30) as u32;
+            let poll_ms = args.get("poll_ms").and_then(|v| v.as_u64()).unwrap_or(1000);
+            let term = TerminalService::new();
+            json!(term.wait_for_output(&d, &s, &marker, max_polls, poll_ms).await)
+        }
+        "terminal_clear_scrollback" => {
+            let d = str_arg(args, "distro");
+            let s = str_arg(args, "session");
+            let term = TerminalService::new();
+            json!(term.clear_scrollback(&d, &s).await)
         }
         _ => jsonrpc_error(-32601, format!("Unknown tool: {tool}")),
     }

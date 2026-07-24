@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 pub mod config;
 pub mod server;
 pub mod services;
@@ -18,5 +20,6 @@ pub use policy::PolicyEngine;
 pub use read_tools::*;
 pub use services::config::WslConfigService;
 pub use services::exec::ExecService;
+pub use services::terminal::TerminalService;
 pub use services::wsl::WslService;
 pub use server::handler::handle_request;
