@@ -200,8 +200,6 @@ path_mappings:
 
 ## Architecture
 
-Port of `sirredbeard/wsl-mcp-server` (.NET 10) with features consolidated from `Nachtalb/mcp-wsl` and `roll-w/host-bridge-mcp`.
-
 ```
 src/
 ├── lib.rs              # Crate root — re-exports all public API
