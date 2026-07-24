@@ -1,7 +1,10 @@
 [package]
-name = "wsl-mcp-server"
+name = "appz-wsl-mcp"
 version = "0.1.0"
 edition = "2021"
+description = "Rust MCP server for WSL management — library + CLI"
+repository = "https://github.com/getappz/appz-wsl-mcp"
+license = "MIT"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
